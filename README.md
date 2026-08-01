@@ -63,8 +63,11 @@ To use your own audio instead, drop an `.mp3` (loopable, ~60–300s works best)
 into:
 
 ```
-${CLAUDE_PLUGIN_DATA:-$HOME/.claude/plugins/data/claura}/sounds/<name>.mp3
+${CLAUDE_PLUGIN_DATA}/sounds/<name>.mp3
 ```
+
+`/claura:menu status` prints that directory as `data_dir` — it is
+`~/.claude/plugins/data/<plugin>-<marketplace>`, not `.../data/claura`.
 
 Then point Claura at it:
 
@@ -95,6 +98,15 @@ The slash command is the supported interface:
 You can also run the script directly:
 `${CLAUDE_PLUGIN_ROOT}/bin/claura-cli.sh status`.
 
+Run that way, `CLAUDE_PLUGIN_DATA` is not set — Claude Code only exports it to
+hooks and slash commands. The script then locates the data directory itself and
+prints what it picked as `data_dir`. If you keep more than one Claura data
+directory around, point it at the right one explicitly:
+
+```sh
+export CLAURA_DATA_DIR="$HOME/.claude/plugins/data/claura-claura-marketplace"
+```
+
 ## Uninstall
 
 ```sh
@@ -107,7 +119,7 @@ Removes the plugin and stops the active player. Your sounds under
 To reset settings without uninstalling:
 
 ```sh
-rm "${CLAUDE_PLUGIN_DATA:-$HOME/.claude/plugins/data/claura}/config.json"
+rm "$(${CLAUDE_PLUGIN_ROOT}/bin/claura-cli.sh status | jq -r .data_dir)/config.json"
 ```
 
 The bootstrap re-seeds defaults on the next session.
