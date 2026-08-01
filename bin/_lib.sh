@@ -22,8 +22,75 @@ os_detect() {
 }
 
 # --- paths -------------------------------------------------------------------
+# Claude Code exports CLAUDE_PLUGIN_DATA when it invokes our hooks and slash
+# command, and it points at `data/<plugin>-<marketplace>` — NOT at `data/claura`.
+# Anything run straight from a shell (which the README documents) inherits no
+# such variable, so a hardcoded default sends the CLI to a phantom directory
+# while the running player keeps using the real one.
+#
+# Resolution order:
+#   1. $CLAURA_DATA_DIR     — explicit override, always wins
+#   2. $CLAUDE_PLUGIN_DATA  — set by Claude Code for hooks and commands
+#   3. auto-discovery       — the one real data dir under ~/.claude/plugins/data
+#   4. legacy default       — ~/.claude/plugins/data/claura
+#
+# Candidates are canonicalized with `pwd -P` and deduplicated, so the common
+# case of `data/claura` being a symlink to `data/claura-<marketplace>` resolves
+# to a single match rather than an ambiguous pair.
+claura_discover_data_dir() {
+  local base="$HOME/.claude/plugins/data" d resolved found="" restore
+  restore=$(shopt -p nullglob 2>/dev/null || true)
+  shopt -s nullglob
+  for d in "$base"/claura "$base"/claura-*; do
+    [[ -d "$d" ]] || continue
+    # A real data dir has been bootstrapped: it holds config.json or state/.
+    [[ -f "$d/config.json" || -d "$d/state" ]] || continue
+    resolved=$(cd "$d" 2>/dev/null && pwd -P) || continue
+    [[ -n "$resolved" ]] || continue
+    printf '%s\n' "$found" | grep -qxF -- "$resolved" && continue
+    found="${found:+$found
+}$resolved"
+  done
+  [[ -n "$restore" ]] && eval "$restore"
+  printf '%s' "$found"
+}
+
 claura_data_dir() {
-  printf '%s\n' "${CLAUDE_PLUGIN_DATA:-$HOME/.claude/plugins/data/claura}"
+  local legacy="$HOME/.claude/plugins/data/claura" found count first
+  if [[ -n "${CLAURA_DATA_DIR:-}" ]]; then
+    printf '%s\n' "$CLAURA_DATA_DIR"
+    return 0
+  fi
+  if [[ -n "${CLAUDE_PLUGIN_DATA:-}" ]]; then
+    printf '%s\n' "$CLAUDE_PLUGIN_DATA"
+    return 0
+  fi
+  # Cache so repeated calls in one process do not re-glob or re-warn.
+  if [[ -n "${_CLAURA_DATA_DIR:-}" ]]; then
+    printf '%s\n' "$_CLAURA_DATA_DIR"
+    return 0
+  fi
+
+  found=$(claura_discover_data_dir)
+  count=0
+  [[ -n "$found" ]] && count=$(printf '%s\n' "$found" | wc -l | tr -d ' ')
+
+  if (( count == 1 )); then
+    _CLAURA_DATA_DIR="$found"
+  elif (( count > 1 )); then
+    # Never guess silently: picking the wrong one here is exactly the failure
+    # this function exists to prevent.
+    first=$(printf '%s\n' "$found" | head -1)
+    {
+      echo "claura: CLAUDE_PLUGIN_DATA is unset and several data dirs match:"
+      printf '%s\n' "$found" | sed 's/^/  - /'
+      echo "claura: using $first — export CLAURA_DATA_DIR to choose explicitly."
+    } >&2
+    _CLAURA_DATA_DIR="$first"
+  else
+    _CLAURA_DATA_DIR="$legacy"
+  fi
+  printf '%s\n' "$_CLAURA_DATA_DIR"
 }
 
 claura_root_dir() {

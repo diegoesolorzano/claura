@@ -27,8 +27,11 @@ silently on every event; no audio plays from the plugin.
 3. **Clear the marker** so the plugin starts handling hooks:
 
    ```sh
-   touch "${CLAUDE_PLUGIN_DATA:-$HOME/.claude/plugins/data/claura}/.legacy-cleared"
+   touch "$(${CLAUDE_PLUGIN_ROOT}/bin/claura-cli.sh status | jq -r .data_dir)/.legacy-cleared"
    ```
+
+   Run from a shell, `CLAUDE_PLUGIN_DATA` is unset; asking the CLI for
+   `data_dir` guarantees the marker lands where the plugin actually reads it.
 
 4. (Optional) Delete the prototype scripts you no longer use:
 
