@@ -40,6 +40,10 @@ LEGACY_CLEARED="$DATA_DIR/.legacy-cleared"
 PLAYER="$SELF_DIR/claura-player.sh"
 
 LOCK_TIMEOUT_SECS=5
+# A lock directory with no `owner` file means a controller died between the
+# mkdir and the owner write. Steal it once it is older than this — long enough
+# that a live controller mid-acquire is ruled out.
+STALE_LOCK_SECS=10
 # Controller-side staleness ceiling. Fine-grained HYSTERESIS lives in the
 # player (with the CPU sampler). Matches the prototype's value.
 MAX_STALE=75
@@ -105,22 +109,43 @@ if [[ "$DEBUG" == "1" ]]; then
     >> "$STATE_DIR/events.log" 2>/dev/null || true
 fi
 
-# --- acquire lock (mkdir; steal if the owner PID is dead) -------------------
+# --- acquire lock (mkdir; steal if the owner PID is dead or never landed) ---
 acquired=false
 deadline=$(( $(date_epoch) + LOCK_TIMEOUT_SECS ))
 while (( $(date_epoch) < deadline )); do
-  if mkdir "$LOCK_DIR" 2>/dev/null; then acquired=true; break; fi
+  if mkdir "$LOCK_DIR" 2>/dev/null; then
+    # Arm the cleanup trap BEFORE writing the owner file: a signal landing in
+    # that window would otherwise leave a lock directory that no later run can
+    # steal, deadlocking every hook from here on.
+    trap 'rm -rf "$LOCK_DIR"' EXIT
+    echo "$$" > "$LOCK_DIR/owner"
+    acquired=true
+    break
+  fi
   if [[ -f "$LOCK_DIR/owner" ]]; then
     owner=$(cat "$LOCK_DIR/owner" 2>/dev/null || echo "")
     if [[ -n "$owner" ]] && ! kill -0 "$owner" 2>/dev/null; then
       rm -rf "$LOCK_DIR"; continue
     fi
+  else
+    # No owner file: either a controller is a few milliseconds away from
+    # writing one, or it was killed in that window (SIGKILL, or a hook the
+    # host timed out) and left the lock orphaned. Age tells them apart.
+    lock_mtime=$(stat_mtime "$LOCK_DIR")
+    if (( lock_mtime > 0 )) && (( $(date_epoch) - lock_mtime >= STALE_LOCK_SECS )); then
+      rm -rf "$LOCK_DIR"; continue
+    fi
   fi
   sleep 0.05
 done
-[[ "$acquired" == true ]] || exit 0
-echo "$$" > "$LOCK_DIR/owner"
-trap 'rm -rf "$LOCK_DIR"' EXIT
+if [[ "$acquired" != true ]]; then
+  # Log unconditionally, not just under DEBUG. Exiting silently here makes a
+  # permanent deadlock look exactly like normal operation: hooks "succeed",
+  # nothing reconciles, and the audio simply never comes back.
+  echo "$(date '+%Y-%m-%dT%H:%M:%S') lock-timeout cmd=$cmd sid=${session_id:0:8} lock=$LOCK_DIR" \
+    >> "$STATE_DIR/events.log" 2>/dev/null || true
+  exit 0
+fi
 
 # --- root-mismatch killswitch ----------------------------------------------
 # If a player is running but was spawned from a different ${CLAUDE_PLUGIN_ROOT}
