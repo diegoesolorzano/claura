@@ -86,7 +86,7 @@ if [[ -n "$subagent" ]]; then
 fi
 
 # Host executable (claude | grok | grok-*). Empty → timestamp staleness.
-host_pid=$(claura_find_host_pid)
+host_pid=$(claura_resolve_host_pid)
 
 if [[ "$DEBUG" == "1" ]]; then
   echo "$(date '+%H:%M:%S') cmd=$cmd host=$HOST evt=${hook_evt:-?} sid=${session_id:0:8} hpid=$host_pid" \
@@ -170,6 +170,13 @@ case "$cmd" in
         skip_idle=true
       fi
     fi
+    # Grok audio is process-scoped: Stop between turns must not kill the
+    # player while `grok` is still running. SessionEnd (`end`) still stops.
+    if [[ "$cmd" == "idle" && "$HOST" == "grok" ]]; then
+      if [[ -n "$host_pid" ]] || claura_pgrep_host grok >/dev/null; then
+        skip_idle=true
+      fi
+    fi
     if [[ "$skip_idle" != true ]]; then
       rm -f "$SESSIONS_DIR/$session_id" \
             "$SESSIONS_DIR/$session_id.cpu" \
@@ -193,8 +200,14 @@ for f in "$SESSIONS_DIR"/*; do
   pid=$(cat "$f" 2>/dev/null)
   mtime=$(stat_mtime "$f")
   if [[ -n "$pid" ]] && ! kill -0 "$pid" 2>/dev/null; then
-    rm -f "$f" "$f.cpu" "$f.prompt" "$BASELINE_DIR/$(basename "$f")" "$BASELINE_DIR/$(basename "$f").degraded"
-    continue
+    rebound=$(claura_pgrep_host "$HOST")
+    if [[ -n "$rebound" ]]; then
+      printf '%s\n' "$rebound" > "$f"
+      pid="$rebound"
+    else
+      rm -f "$f" "$f.cpu" "$f.prompt" "$BASELINE_DIR/$(basename "$f")" "$BASELINE_DIR/$(basename "$f").degraded"
+      continue
+    fi
   fi
   if (( now - mtime >= MAX_STALE )); then
     rm -f "$f" "$f.cpu" "$f.prompt" "$BASELINE_DIR/$(basename "$f")" "$BASELINE_DIR/$(basename "$f").degraded"

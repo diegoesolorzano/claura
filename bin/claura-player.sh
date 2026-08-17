@@ -214,10 +214,16 @@ any_alive() {
     [[ "$f" == *.cpu || "$f" == *.prompt ]] && continue
     sid=$(basename "$f")
     pid=$(cat "$f" 2>/dev/null)
-    # process gone -> reap (main + sidecar + baseline)
+    # process gone -> rebind to the live host binary, else reap
     if [[ -n "$pid" ]] && ! kill -0 "$pid" 2>/dev/null; then
-      rm -f "$f" "$f.cpu" "$BASELINE_DIR/$sid" "$BASELINE_DIR/$sid.degraded"
-      continue
+      rebound=$(claura_pgrep_host "$HOST")
+      if [[ -n "$rebound" ]]; then
+        printf '%s\n' "$rebound" > "$f"
+        pid="$rebound"
+      else
+        rm -f "$f" "$f.cpu" "$f.prompt" "$BASELINE_DIR/$sid" "$BASELINE_DIR/$sid.degraded"
+        continue
+      fi
     fi
     emtime=$(effective_mtime "$f")
     # pick limit based on whether CPU is working for this session
@@ -227,8 +233,13 @@ any_alive() {
       limit=$HYSTERESIS
     fi
     if (( now - emtime >= limit )); then
-      rm -f "$f" "$f.cpu" "$BASELINE_DIR/$sid" "$BASELINE_DIR/$sid.degraded"
-      continue
+      # Grok stays up for the life of the `grok` process, not the turn.
+      if [[ "$HOST" == "grok" ]] && claura_pgrep_host grok >/dev/null; then
+        touch "$f"
+      else
+        rm -f "$f" "$f.cpu" "$f.prompt" "$BASELINE_DIR/$sid" "$BASELINE_DIR/$sid.degraded"
+        continue
+      fi
     fi
     found=0
   done

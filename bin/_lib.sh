@@ -85,6 +85,31 @@ claura_find_host_pid() {
   done
 }
 
+# Fallback when walking $PPID misses: the host binary may be a cousin, not
+# an ancestor (Grok's hook shells sometimes sit beside `grok -c`, not under it).
+claura_pgrep_host() {
+  local host
+  host=$(claura_sanitize_host "${1:-$(claura_detect_host)}")
+  case "$host" in
+    grok)
+      pgrep -x grok 2>/dev/null | head -1
+      ;;
+    claude)
+      pgrep -x claude 2>/dev/null | head -1
+      ;;
+  esac
+}
+
+claura_resolve_host_pid() {
+  local pid
+  pid=$(claura_find_host_pid "${1:-$PPID}")
+  if [[ -z "$pid" ]]; then
+    pid=$(claura_pgrep_host)
+  fi
+  printf '%s' "$pid"
+  [[ -n "$pid" ]]
+}
+
 # --- paths -------------------------------------------------------------------
 # Resolution order:
 #   1. $CLAURA_DATA_DIR

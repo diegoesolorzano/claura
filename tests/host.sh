@@ -136,6 +136,23 @@ if [[ -n "$got" ]]; then
   esac
 fi
 
+got=$(claura_pgrep_host grok)
+if [[ -n "$got" ]]; then
+  base=$(ps -o comm= -p "$got" 2>/dev/null); base=${base##*/}
+  case "$base" in
+    grok|grok-*) ;;
+    *)
+      echo "FAIL pgrep_host grok matched pid $got comm='$base'" >&2
+      failed=$((failed + 1))
+      ;;
+  esac
+fi
+got=$(claura_resolve_host_pid $$)
+if [[ -z "$got" ]]; then
+  echo "FAIL resolve_host_pid empty inside a Grok session" >&2
+  failed=$((failed + 1))
+fi
+
 if (( failed > 0 )); then
   echo "$failed assertion(s) failed" >&2
   exit 1

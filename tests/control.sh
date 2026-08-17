@@ -50,21 +50,26 @@ printf '%s' '{"sessionId":"'"$sid"'","promptId":"p2"}' | ctl working
 printf '%s' '{"sessionId":"'"$sid"'","promptId":"p1"}' | ctl idle
 assert_file "$sessions/$sid" "stale idle does not delete newer turn"
 
-# Matching idle clears it.
+# Matching idle on Grok does NOT clear: audio is process-scoped.
 printf '%s' '{"sessionId":"'"$sid"'","promptId":"p2"}' | ctl idle
-assert_no_file "$sessions/$sid" "matching idle deletes session"
+assert_file "$sessions/$sid" "grok idle keeps session while grok process lives"
+
+# SessionEnd (`end`) still tears it down.
+printf '%s' '{"sessionId":"'"$sid"'","promptId":"p2"}' | ctl end
+assert_no_file "$sessions/$sid" "grok end deletes session"
 
 # Subagent events are ignored entirely.
-printf '%s' '{"sessionId":"'"$sid"'","promptId":"p3","subagentType":"explore"}' | ctl working
-assert_no_file "$sessions/$sid" "subagent working is ignored"
+sid2="sess-2"
+printf '%s' '{"sessionId":"'"$sid2"'","promptId":"p3","subagentType":"explore"}' | ctl working
+assert_no_file "$sessions/$sid2" "subagent working is ignored"
 
-printf '%s' '{"sessionId":"'"$sid"'","promptId":"p4"}' | ctl working
-printf '%s' '{"sessionId":"'"$sid"'","promptId":"p4","subagentType":"explore"}' | ctl idle
-assert_file "$sessions/$sid" "subagent idle does not reap parent"
+printf '%s' '{"sessionId":"'"$sid2"'","promptId":"p4"}' | ctl working
+printf '%s' '{"sessionId":"'"$sid2"'","promptId":"p4","subagentType":"explore"}' | ctl idle
+assert_file "$sessions/$sid2" "subagent idle does not reap parent"
 
 # Continuation Stop (stopHookActive) is not idle.
-printf '%s' '{"sessionId":"'"$sid"'","promptId":"p4","stopHookActive":true}' | ctl idle
-assert_file "$sessions/$sid" "stopHookActive idle is ignored"
+printf '%s' '{"sessionId":"'"$sid2"'","promptId":"p4","stopHookActive":true}' | ctl idle
+assert_file "$sessions/$sid2" "stopHookActive idle is ignored"
 
 if (( failed > 0 )); then
   echo "$failed assertion(s) failed" >&2
