@@ -63,6 +63,17 @@ claude plugin install claura@claura-marketplace
 # or: grok plugin marketplace add ./claura && grok plugin install claura --trust
 ```
 
+OpenCode (separate runtime — it does not speak `hooks.json`):
+
+```sh
+mkdir -p ~/.config/opencode/plugins
+ln -sf "$(pwd)/opencode/plugin.js" ~/.config/opencode/plugins/claura.js
+# optional: pick a track for that host
+# /claura:menu set sound birds opencode
+```
+
+The adapter drives the same `claura-control.sh` with `CLAURA_HOST=opencode`. It looks for an existing Claura install under `CLAURA_PLUGIN_ROOT`, `~/.grok/plugins/claura`, or the Claude plugin cache.
+
 That's it — no `settings.json` edits. The plugin owns its own state under
 `${CLAUDE_PLUGIN_DATA}` (or `${GROK_PLUGIN_DATA}`). If a Claude data dir is
 already bootstrapped, Grok reuses it so sounds and volume stay shared.
@@ -107,8 +118,10 @@ The slash command is the supported interface:
 /claura:menu mute                # mute + stop player
 /claura:menu set volume 60           # default / Claude
 /claura:menu set volume 80 grok      # Grok only
+/claura:menu set volume 40 opencode  # OpenCode only
 /claura:menu set sound <name>           # Claude default (or current host)
 /claura:menu set sound <name> grok      # Grok override only
+/claura:menu set sound <name> opencode  # OpenCode override only
 ```
 
 `status` returns one line of JSON with: `enabled`, `sound`, `volume`,

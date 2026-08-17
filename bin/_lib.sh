@@ -65,18 +65,18 @@ claura_json_get() {
 }
 
 # Walk up from PID (default: $PPID) looking for the host executable.
-# Matches `claude`, `grok`, and `grok-*` (versioned Grok binaries).
+# Matches `claude`, `grok`, `grok-*`, and `opencode`.
 claura_find_host_pid() {
   local pid="${1:-$PPID}" base cmdline
   for _ in $(seq 1 10); do
     [[ -z "$pid" || "$pid" -le 1 ]] && break
     base=$(ps -o comm= -p "$pid" 2>/dev/null); base=${base##*/}
     case "$base" in
-      claude|grok|grok-*) printf '%s\n' "$pid"; return 0 ;;
+      claude|grok|grok-*|opencode) printf '%s\n' "$pid"; return 0 ;;
     esac
-    if [[ "$base" == node* ]]; then
+    if [[ "$base" == node* || "$base" == bun* ]]; then
       cmdline=$(ps -o command= -p "$pid" 2>/dev/null)
-      if [[ "$cmdline" == *claude* || "$cmdline" == *grok* ]]; then
+      if [[ "$cmdline" == *claude* || "$cmdline" == *grok* || "$cmdline" == *opencode* ]]; then
         printf '%s\n' "$pid"
         return 0
       fi
@@ -96,6 +96,9 @@ claura_pgrep_host() {
       ;;
     claude)
       pgrep -x claude 2>/dev/null | head -1
+      ;;
+    opencode)
+      pgrep -x opencode 2>/dev/null | head -1
       ;;
   esac
 }

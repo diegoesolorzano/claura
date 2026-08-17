@@ -33,6 +33,7 @@ unset GROK_SESSION_ID
 
 # --- sanitize host -----------------------------------------------------------
 assert_eq "$(claura_sanitize_host 'grok')" "grok" "sanitize keeps grok"
+assert_eq "$(claura_sanitize_host 'opencode')" "opencode" "sanitize keeps opencode"
 assert_eq "$(claura_sanitize_host 'GROK')" "grok" "sanitize lowercases"
 assert_eq "$(claura_sanitize_host 'foo/../bar')" "foobar" "sanitize strips path chars"
 assert_eq "$(claura_sanitize_host '')" "claude" "sanitize empty → claude"

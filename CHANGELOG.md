@@ -13,6 +13,8 @@ All notable changes to this project are documented here. Versioning follows
   wired. The CPU sampler follows `grok` / `grok-*` as well as `claude`.
 - Per-host sound: `hosts.<name>.sound` overrides the default `sound`.
   `/claura:menu set sound NAME [host]`.
+- OpenCode adapter (`opencode/plugin.js`) that drives the same controller
+  with `CLAURA_HOST=opencode`. Does not ship its own `afplay`.
 - Shared data-dir discovery: a bootstrapped Claude data dir is reused by
   Grok so existing sounds and volume carry over.
 
