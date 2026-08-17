@@ -233,6 +233,13 @@ any_alive() {
       limit=$HYSTERESIS
     fi
     if (( now - emtime >= limit )); then
+      # Grok spends most of a turn blocked on the API (<5% CPU), so the
+      # Claude hysteresis would reap mid-track and skip the next loop.
+      # The controller deletes this file on Stop/idle; until then, keep it.
+      if [[ "$HOST" == "grok" ]] && claura_pgrep_host grok >/dev/null; then
+        found=0
+        continue
+      fi
       rm -f "$f" "$f.cpu" "$f.prompt" "$BASELINE_DIR/$sid" "$BASELINE_DIR/$sid.degraded"
       continue
     fi
