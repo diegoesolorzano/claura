@@ -105,7 +105,8 @@ The slash command is the supported interface:
 /claura:menu on                  # enable + unmute
 /claura:menu off                 # disable + stop player
 /claura:menu mute                # mute + stop player
-/claura:menu set volume 60       # 0..100; restarts player so it applies right away
+/claura:menu set volume 60           # default / Claude
+/claura:menu set volume 80 grok      # Grok only
 /claura:menu set sound <name>           # Claude default (or current host)
 /claura:menu set sound <name> grok      # Grok override only
 ```

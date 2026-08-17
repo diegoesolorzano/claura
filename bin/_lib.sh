@@ -205,6 +205,23 @@ claura_cfg_host_sound() {
   printf '%s\n' "$val"
 }
 
+# hosts.$host.volume if set, else top-level volume, else 100.
+claura_cfg_host_volume() {
+  local host def cfg val
+  host=$(claura_sanitize_host "${1:-}")
+  def=$(claura_cfg_get volume 100)
+  cfg="$(claura_data_dir)/config.json"
+  if [[ ! -f "$cfg" ]] || ! command -v jq >/dev/null 2>&1; then
+    printf '%s\n' "$def"
+    return 0
+  fi
+  val=$(jq -r --arg h "$host" '.hosts[$h].volume // empty' "$cfg" 2>/dev/null || true)
+  if [[ -z "$val" || "$val" == "null" ]]; then
+    val="$def"
+  fi
+  printf '%s\n' "$val"
+}
+
 # --- sound resolution --------------------------------------------------------
 # Resolution order, in this priority:
 #   1. ${CLAUDE_PLUGIN_DATA}/sounds/<name>.mp3   (user-dropped)

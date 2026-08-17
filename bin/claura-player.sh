@@ -64,7 +64,7 @@ fi
 
 # --- config (read ONCE) -----------------------------------------------------
 SOUND=$(claura_cfg_host_sound "$HOST")
-VOLUME=$(claura_cfg_get volume 100)
+VOLUME=$(claura_cfg_host_volume "$HOST")
 THRESHOLD=$(claura_cfg_get threshold 5)
 HYSTERESIS=$(claura_cfg_get hysteresis 10)
 MAX_STALE=$(claura_cfg_get max_stale 75)

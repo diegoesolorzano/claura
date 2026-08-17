@@ -38,11 +38,23 @@ out=$(CLAURA_HOST=claude "$ROOT/bin/claura-cli.sh" set sound grok grok)
 got=$(jq -r '.hosts.grok.sound' "$tmp/config.json")
 assert_eq "$got" "grok" "explicit host arg wins over CLAURA_HOST"
 
+out=$(CLAURA_HOST=grok "$ROOT/bin/claura-cli.sh" set volume 80)
+got=$(jq -r '.hosts.grok.volume' "$tmp/config.json")
+assert_eq "$got" "80" "grok set volume writes hosts.grok.volume"
+got=$(jq -r .volume "$tmp/config.json")
+assert_eq "$got" "30" "grok set volume does not clobber default volume"
+
+out=$(CLAURA_HOST=claude "$ROOT/bin/claura-cli.sh" set volume 30)
+got=$(jq -r .volume "$tmp/config.json")
+assert_eq "$got" "30" "claude set volume writes top-level volume"
+
 out=$(CLAURA_HOST=grok "$ROOT/bin/claura-cli.sh" status)
 got=$(printf '%s' "$out" | jq -r .host)
 assert_eq "$got" "grok" "status reports host=grok"
 got=$(printf '%s' "$out" | jq -r .sound_for_host)
 assert_eq "$got" "grok" "status sound_for_host is grok override"
+got=$(printf '%s' "$out" | jq -r .volume_for_host)
+assert_eq "$got" "80" "status volume_for_host is grok override"
 
 if (( failed > 0 )); then
   echo "$failed assertion(s) failed" >&2

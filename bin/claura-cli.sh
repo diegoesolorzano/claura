@@ -106,9 +106,10 @@ status_cmd() {
   fi
   data_dir="$DATA_DIR"
   root=$(claura_root_dir)
-  local host sound_for_host
+  local host sound_for_host volume_for_host
   host=$(claura_detect_host)
   sound_for_host=$(claura_cfg_host_sound "$host")
+  volume_for_host=$(claura_cfg_host_volume "$host")
   jq -c \
     --argjson sounds "$sounds" \
     --argjson legacy "$legacy" \
@@ -116,6 +117,7 @@ status_cmd() {
     --arg root "$root" \
     --arg host "$host" \
     --arg sound_for_host "$sound_for_host" \
+    --argjson volume_for_host "$volume_for_host" \
     '{ok:true,
       enabled:    (if has("enabled") then .enabled else true  end),
       sound:      (.sound      // "birds"),
@@ -123,6 +125,7 @@ status_cmd() {
       host:       $host,
       hosts:      (.hosts // {}),
       volume:     (.volume     // 100),
+      volume_for_host: $volume_for_host,
       muted:      (if has("muted")   then .muted   else false end),
       threshold:  (.threshold  // 5),
       hysteresis: (.hysteresis // 10),
@@ -152,6 +155,19 @@ mute_cmd() {
   status_cmd
 }
 
+set_host_field() {
+  local host="$1" key="$2" val_json="$3" tmp
+  tmp=$(mktemp "${TMPDIR:-/tmp}/claura.config.XXXXXX")
+  if jq --arg h "$host" --arg k "$key" --argjson v "$val_json" \
+      '.hosts = (.hosts // {}) | .hosts[$h] = ((.hosts[$h] // {}) + {($k): $v})' \
+      "$CFG" > "$tmp"; then
+    mv "$tmp" "$CFG"
+  else
+    rm -f "$tmp"
+    return 1
+  fi
+}
+
 set_host_sound() {
   local host="$1" val="$2" tmp
   tmp=$(mktemp "${TMPDIR:-/tmp}/claura.config.XXXXXX")
@@ -173,8 +189,18 @@ set_cmd() {
         jq -nc --arg arg "$arg" '{ok:false, error:"volume must be an integer 0..100", got:$arg}'
         return 0
       fi
-      set_field_json volume "$arg"
-      claura_stop_player
+      local host
+      if [[ -n "$extra" ]]; then
+        host=$(claura_sanitize_host "$extra")
+      else
+        host=$(claura_detect_host)
+      fi
+      if [[ "$host" == "claude" ]]; then
+        set_field_json volume "$arg"
+      else
+        set_host_field "$host" volume "$arg"
+      fi
+      claura_stop_player "$host"
       status_cmd
       ;;
     sound)

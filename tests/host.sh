@@ -103,6 +103,17 @@ assert_eq "$(claura_cfg_host_sound claude)" "rain-window-01" "host sound claude 
 assert_eq "$(claura_cfg_host_sound grok)" "grok" "host sound grok uses override"
 assert_eq "$(claura_cfg_host_sound opencode)" "rain-window-01" "host sound unknown falls back to default"
 
+# --- cfg host volume ---------------------------------------------------------
+cat > "$cfg_dir/config.json" <<'EOF'
+{
+  "sound": "rain-window-01",
+  "volume": 30,
+  "hosts": { "grok": { "sound": "grok", "volume": 80 } }
+}
+EOF
+assert_eq "$(claura_cfg_host_volume claude)" "30" "host volume claude uses default"
+assert_eq "$(claura_cfg_host_volume grok)" "80" "host volume grok uses override"
+
 # --- paths namespaced --------------------------------------------------------
 assert_eq "$(claura_sessions_dir grok)" "$cfg_dir/state/sessions/grok" "sessions dir namespaced"
 assert_eq "$(claura_player_pid_file grok)" "$cfg_dir/state/player.grok.pid" "player pid namespaced"
