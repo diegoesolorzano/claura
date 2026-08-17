@@ -50,13 +50,9 @@ printf '%s' '{"sessionId":"'"$sid"'","promptId":"p2"}' | ctl working
 printf '%s' '{"sessionId":"'"$sid"'","promptId":"p1"}' | ctl idle
 assert_file "$sessions/$sid" "stale idle does not delete newer turn"
 
-# Matching idle on Grok does NOT clear: audio is process-scoped.
+# Matching idle clears the session (turn-scoped, same as Claude).
 printf '%s' '{"sessionId":"'"$sid"'","promptId":"p2"}' | ctl idle
-assert_file "$sessions/$sid" "grok idle keeps session while grok process lives"
-
-# SessionEnd (`end`) still tears it down.
-printf '%s' '{"sessionId":"'"$sid"'","promptId":"p2"}' | ctl end
-assert_no_file "$sessions/$sid" "grok end deletes session"
+assert_no_file "$sessions/$sid" "matching idle deletes session"
 
 # Subagent events are ignored entirely.
 sid2="sess-2"

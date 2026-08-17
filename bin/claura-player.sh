@@ -233,13 +233,8 @@ any_alive() {
       limit=$HYSTERESIS
     fi
     if (( now - emtime >= limit )); then
-      # Grok stays up for the life of the `grok` process, not the turn.
-      if [[ "$HOST" == "grok" ]] && claura_pgrep_host grok >/dev/null; then
-        touch "$f"
-      else
-        rm -f "$f" "$f.cpu" "$f.prompt" "$BASELINE_DIR/$sid" "$BASELINE_DIR/$sid.degraded"
-        continue
-      fi
+      rm -f "$f" "$f.cpu" "$f.prompt" "$BASELINE_DIR/$sid" "$BASELINE_DIR/$sid.degraded"
+      continue
     fi
     found=0
   done

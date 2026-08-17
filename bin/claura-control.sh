@@ -170,13 +170,6 @@ case "$cmd" in
         skip_idle=true
       fi
     fi
-    # Grok audio is process-scoped: Stop between turns must not kill the
-    # player while `grok` is still running. SessionEnd (`end`) still stops.
-    if [[ "$cmd" == "idle" && "$HOST" == "grok" ]]; then
-      if [[ -n "$host_pid" ]] || claura_pgrep_host grok >/dev/null; then
-        skip_idle=true
-      fi
-    fi
     if [[ "$skip_idle" != true ]]; then
       rm -f "$SESSIONS_DIR/$session_id" \
             "$SESSIONS_DIR/$session_id.cpu" \
