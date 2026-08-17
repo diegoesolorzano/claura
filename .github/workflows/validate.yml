@@ -25,6 +25,9 @@ jobs:
       - name: shellcheck (blocking)
         run: shellcheck -s bash bin/*.sh
 
+      - name: unit tests
+        run: bash tests/run.sh
+
       - name: Smoke — CLAUDE_PLUGIN_ROOT with a space
         run: |
           mkdir -p "/tmp/has space/claura"
