@@ -29,10 +29,11 @@ os_detect >/dev/null
 
 DATA_DIR=$(claura_data_dir)
 STATE_DIR="$DATA_DIR/state"
-SESSIONS_DIR="$STATE_DIR/sessions"
-BASELINE_DIR="$STATE_DIR/baseline"
-PLAYER_PID_FILE="$STATE_DIR/player.pid"
-PLAYER_ROOT_FILE="$STATE_DIR/player.root"
+HOST=$(claura_detect_host)
+SESSIONS_DIR=$(claura_sessions_dir "$HOST")
+BASELINE_DIR=$(claura_baseline_dir "$HOST")
+PLAYER_PID_FILE=$(claura_player_pid_file "$HOST")
+PLAYER_ROOT_FILE=$(claura_player_root_file "$HOST")
 LOCK_DIR="$STATE_DIR/lock.d"
 BOOTSTRAPPED="$DATA_DIR/.bootstrapped"
 LEGACY_DETECTED="$DATA_DIR/.legacy-detected"
@@ -66,42 +67,19 @@ cmd="${1:-}"
 [[ -z "$cmd" ]] && exit 0
 
 # --- session_id from stdin JSON ---------------------------------------------
+# Claude sends snake_case; Grok sends camelCase. First non-empty wins.
 input=""
 [[ ! -t 0 ]] && input=$(cat 2>/dev/null || true)
-session_id=""
-hook_evt=""
-if [[ -n "$input" ]] && command -v jq >/dev/null 2>&1; then
-  session_id=$(printf '%s' "$input" | jq -r '.session_id // empty' 2>/dev/null || true)
-  hook_evt=$(printf '%s' "$input" | jq -r '.hook_event_name // empty' 2>/dev/null || true)
-fi
+session_id=$(claura_json_get "$input" sessionId session_id)
+hook_evt=$(claura_json_get "$input" hookEventName hook_event_name)
 [[ -z "$session_id" ]] && session_id="pid-$PPID"
 session_id=$(printf '%s' "$session_id" | tr -cd 'a-zA-Z0-9-')
 
-# --- find the Claude Code PID by walking up the process tree ----------------
-# The hook runs several levels below Claude Code: claude -> shell -> this
-# script. We must match the EXECUTABLE name (`claude`), not the command line —
-# the shell's command line contains the ".claude/" directory path and would
-# match a naive substring test, pinning us to the short-lived hook shell.
-# Claude Code's executable basename is "claude" (or "node" running a claude
-# cli.js). Climb up to 10 levels.
-find_claude_pid() {
-  local pid="$PPID" base cmdline
-  for _ in $(seq 1 10); do
-    [[ -z "$pid" || "$pid" -le 1 ]] && break
-    base=$(ps -o comm= -p "$pid" 2>/dev/null); base=${base##*/}
-    if [[ "$base" == "claude" ]]; then echo "$pid"; return; fi
-    if [[ "$base" == node* ]]; then
-      cmdline=$(ps -o command= -p "$pid" 2>/dev/null)
-      [[ "$cmdline" == *claude* ]] && { echo "$pid"; return; }
-    fi
-    pid=$(ps -o ppid= -p "$pid" 2>/dev/null | tr -d ' ')
-  done
-  echo ""   # unknown -> player falls back to timestamp staleness
-}
-claude_pid=$(find_claude_pid)
+# Host executable (claude | grok | grok-*). Empty → timestamp staleness.
+host_pid=$(claura_find_host_pid)
 
 if [[ "$DEBUG" == "1" ]]; then
-  echo "$(date '+%H:%M:%S') cmd=$cmd evt=${hook_evt:-?} sid=${session_id:0:8} cpid=$claude_pid" \
+  echo "$(date '+%H:%M:%S') cmd=$cmd host=$HOST evt=${hook_evt:-?} sid=${session_id:0:8} hpid=$host_pid" \
     >> "$STATE_DIR/events.log" 2>/dev/null || true
 fi
 
@@ -145,7 +123,7 @@ fi
 # sidecar `touch` right after rm from creating a ghost session.
 case "$cmd" in
   working)
-    echo "$claude_pid" > "$SESSIONS_DIR/$session_id"
+    echo "$host_pid" > "$SESSIONS_DIR/$session_id"
     ;;
   idle|end)
     rm -f "$SESSIONS_DIR/$session_id" \
@@ -163,6 +141,7 @@ now=$(date_epoch)
 active=0
 shopt -s nullglob
 for f in "$SESSIONS_DIR"/*; do
+  [[ -d "$f" ]] && continue
   [[ "$f" == *.cpu ]] && continue
   pid=$(cat "$f" 2>/dev/null)
   mtime=$(stat_mtime "$f")
@@ -203,7 +182,7 @@ fi
 # kill it. We keep session files around when audio is just muted/disabled so
 # re-enabling re-engages from the same state on the next hook tick.
 if (( active > 0 )) && [[ "$player_alive" == false ]] && [[ "$playable" == true ]]; then
-  /usr/bin/env bash "$PLAYER" </dev/null >/dev/null 2>&1 &
+  CLAURA_HOST="$HOST" /usr/bin/env bash "$PLAYER" </dev/null >/dev/null 2>&1 &
   echo $! > "$PLAYER_PID_FILE"
   if [[ -n "$CURRENT_ROOT" ]]; then
     echo "$CURRENT_ROOT" > "$PLAYER_ROOT_FILE"

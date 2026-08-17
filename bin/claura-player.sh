@@ -46,11 +46,12 @@ os_detect >/dev/null
 
 DATA_DIR=$(claura_data_dir)
 STATE_DIR="$DATA_DIR/state"
-SESSIONS_DIR="$STATE_DIR/sessions"
-BASELINE_DIR="$STATE_DIR/baseline"
-PLAYER_PID_FILE="$STATE_DIR/player.pid"
-PLAYER_ROOT_FILE="$STATE_DIR/player.root"
-CPU_LOG="$STATE_DIR/cpu.log"
+HOST=$(claura_sanitize_host "${CLAURA_HOST:-$(claura_detect_host)}")
+SESSIONS_DIR=$(claura_sessions_dir "$HOST")
+BASELINE_DIR=$(claura_baseline_dir "$HOST")
+PLAYER_PID_FILE=$(claura_player_pid_file "$HOST")
+PLAYER_ROOT_FILE=$(claura_player_root_file "$HOST")
+CPU_LOG="$STATE_DIR/cpu.$HOST.log"
 TRANSCRIPT_ROOT="${CLAUDE_CONFIG_DIR:-$HOME/.claude}/projects"
 
 mkdir -p "$BASELINE_DIR" "$SESSIONS_DIR"
@@ -62,7 +63,7 @@ if [[ -n "$CURRENT_ROOT" ]]; then
 fi
 
 # --- config (read ONCE) -----------------------------------------------------
-SOUND=$(claura_cfg_get sound birds)
+SOUND=$(claura_cfg_host_sound "$HOST")
 VOLUME=$(claura_cfg_get volume 100)
 THRESHOLD=$(claura_cfg_get threshold 5)
 HYSTERESIS=$(claura_cfg_get hysteresis 10)
@@ -208,6 +209,7 @@ any_alive() {
   now=$(date_epoch)
   for f in "$SESSIONS_DIR"/*; do
     [[ -e "$f" ]] || continue
+    [[ -d "$f" ]] && continue
     # skip sidecars: they're metadata for the main file
     [[ "$f" == *.cpu ]] && continue
     sid=$(basename "$f")
@@ -240,6 +242,7 @@ sample_all_sessions() {
   now=$(date_epoch)
   for f in "$SESSIONS_DIR"/*; do
     [[ -e "$f" ]] || continue
+    [[ -d "$f" ]] && continue
     [[ "$f" == *.cpu ]] && continue
     sid=$(basename "$f")
     pid=$(cat "$f" 2>/dev/null)

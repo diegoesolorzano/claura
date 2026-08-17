@@ -1,7 +1,7 @@
 ---
 description: Configure Claura ambient audio
 allowed-tools: Bash
-argument-hint: [status|on|off|mute|set volume N|set sound NAME]
+argument-hint: [status|on|off|mute|set volume N|set sound NAME [host]]
 ---
 Run exactly: `${CLAUDE_PLUGIN_ROOT}/bin/claura-cli.sh $ARGUMENTS`
 

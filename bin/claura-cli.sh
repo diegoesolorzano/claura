@@ -106,14 +106,22 @@ status_cmd() {
   fi
   data_dir="$DATA_DIR"
   root=$(claura_root_dir)
+  local host sound_for_host
+  host=$(claura_detect_host)
+  sound_for_host=$(claura_cfg_host_sound "$host")
   jq -c \
     --argjson sounds "$sounds" \
     --argjson legacy "$legacy" \
     --arg data "$data_dir" \
     --arg root "$root" \
+    --arg host "$host" \
+    --arg sound_for_host "$sound_for_host" \
     '{ok:true,
       enabled:    (if has("enabled") then .enabled else true  end),
       sound:      (.sound      // "birds"),
+      sound_for_host: $sound_for_host,
+      host:       $host,
+      hosts:      (.hosts // {}),
       volume:     (.volume     // 100),
       muted:      (if has("muted")   then .muted   else false end),
       threshold:  (.threshold  // 5),
@@ -144,8 +152,21 @@ mute_cmd() {
   status_cmd
 }
 
+set_host_sound() {
+  local host="$1" val="$2" tmp
+  tmp=$(mktemp "${TMPDIR:-/tmp}/claura.config.XXXXXX")
+  if jq --arg h "$host" --arg v "$val" \
+      '.hosts = (.hosts // {}) | .hosts[$h] = ((.hosts[$h] // {}) + {sound: $v})' \
+      "$CFG" > "$tmp"; then
+    mv "$tmp" "$CFG"
+  else
+    rm -f "$tmp"
+    return 1
+  fi
+}
+
 set_cmd() {
-  local sub="${1:-}" arg="${2:-}"
+  local sub="${1:-}" arg="${2:-}" extra="${3:-}"
   case "$sub" in
     volume)
       if [[ -z "$arg" || ! "$arg" =~ ^[0-9]+$ ]] || (( arg < 0 || arg > 100 )); then
@@ -162,15 +183,24 @@ set_cmd() {
           '{ok:false, error:"set sound requires a name", allowed:$allowed}'
         return 0
       fi
-      local allowed_list
+      local allowed_list host
       allowed_list=$(discover_sounds)
       if ! grep -qxF -- "$arg" <<<"$allowed_list"; then
         jq -nc --arg arg "$arg" --argjson allowed "$(sounds_json_array)" \
           '{ok:false, error:"unknown sound", got:$arg, allowed:$allowed}'
         return 0
       fi
-      set_field_str sound "$arg"
-      claura_stop_player
+      if [[ -n "$extra" ]]; then
+        host=$(claura_sanitize_host "$extra")
+      else
+        host=$(claura_detect_host)
+      fi
+      if [[ "$host" == "claude" ]]; then
+        set_field_str sound "$arg"
+      else
+        set_host_sound "$host" "$arg"
+      fi
+      claura_stop_player "$host"
       status_cmd
       ;;
     "")
@@ -191,7 +221,7 @@ main() {
     on)     on_cmd ;;
     off)    off_cmd ;;
     mute)   mute_cmd ;;
-    set)    shift; set_cmd "${1:-}" "${2:-}" ;;
+    set)    shift; set_cmd "${1:-}" "${2:-}" "${3:-}" ;;
     *)
       jq -nc --arg cmd "$cmd" \
         '{ok:false, error:"unknown command", got:$cmd, allowed:["status","on","off","mute","set"]}'

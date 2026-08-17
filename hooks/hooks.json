@@ -33,7 +33,14 @@
     "Stop": [
       {
         "hooks": [
-          { "type": "command", "command": "/usr/bin/afplay /System/Library/Sounds/Glass.aiff" },
+          { "type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}/bin/claura-chime.sh\" stop" },
+          { "type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}/bin/claura-control.sh\" idle" }
+        ]
+      }
+    ],
+    "StopCancelled": [
+      {
+        "hooks": [
           { "type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}/bin/claura-control.sh\" idle" }
         ]
       }
@@ -42,7 +49,7 @@
       {
         "matcher": "*",
         "hooks": [
-          { "type": "command", "command": "/usr/bin/afplay /System/Library/Sounds/Pop.aiff" },
+          { "type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}/bin/claura-chime.sh\" permission" },
           { "type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}/bin/claura-control.sh\" idle" }
         ]
       }
@@ -55,6 +62,13 @@
       }
     ],
     "Notification": [
+      {
+        "matcher": "permission_prompt",
+        "hooks": [
+          { "type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}/bin/claura-chime.sh\" permission" },
+          { "type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}/bin/claura-control.sh\" idle" }
+        ]
+      },
       {
         "matcher": "*",
         "hooks": [
