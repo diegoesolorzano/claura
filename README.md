@@ -6,26 +6,35 @@
 
 [![validate](https://github.com/scrocchi/claura/actions/workflows/validate.yml/badge.svg)](https://github.com/scrocchi/claura/actions/workflows/validate.yml)
 
-Ambient audio for [Claude Code](https://claude.com/claude-code). Plays a
-soundscape while Claude is working and stops the instant it goes idle —
-even when you press Escape mid-generation.
+Ambient audio for [Claude Code](https://claude.com/claude-code) and
+[Grok](https://grok.com). Plays a soundscape while the host is working and
+stops the instant it goes idle — even when you press Escape mid-generation.
 
-**0.1.0 ships macOS-only.** Linux and Windows are planned for 0.2.0+.
+Each host has its own player and can use its own sound, so Claude and Grok
+can run at the same time without sharing a track.
+
+**0.1.1 ships macOS-only.** Linux and Windows are planned for 0.2.0+.
 
 ## How it works
 
 Hooks (`SessionStart`, `UserPromptSubmit`, `PreToolUse`, `PostToolUse`,
-`Stop`, `PermissionRequest`, `StopFailure`, `Notification`, `SessionEnd`)
-drive a small controller that registers/unregisters each session. A
-background player runs as long as at least one session is "working".
-Aliveness is refreshed by both hook events and a CPU sampler watching the
-Claude process tree, so the audio survives long model thinking (hooks
-don't fire then) but cuts within ~10s of Escape or idle.
+`Stop`, `StopCancelled`, `PermissionRequest`, `StopFailure`, `Notification`,
+`SessionEnd`) drive a small controller that registers/unregisters each
+session per host. A background player runs as long as that host has a
+"working" session. Aliveness is refreshed by both hook events and a CPU
+sampler watching the host process tree (`claude` or `grok`), so the audio
+survives long model thinking (hooks don't fire then) but cuts within ~10s
+of Escape or idle.
+
+Grok sends camelCase hook payloads (`sessionId`) and fires `StopCancelled`
+on Escape; Claude's snake_case and `Stop` path is unchanged. Unknown events
+are ignored by the other host.
 
 Two short system chimes are also wired in:
 
-- `Glass.aiff` on `Stop` — turn finished cleanly.
-- `Pop.aiff` on `PermissionRequest` — Claude is waiting for approval.
+- `Glass.aiff` on a genuine `Stop` (`reason` empty or `end_turn`).
+- `Pop.aiff` on `PermissionRequest` (Claude) or `Notification` /
+  `permission_prompt` (Grok).
 
 ## Install
 
@@ -36,6 +45,13 @@ claude plugin marketplace add scrocchi/claura
 claude plugin install claura@claura-marketplace
 ```
 
+Grok (same marketplace; trust the plugin so its hooks run):
+
+```sh
+grok plugin marketplace add scrocchi/claura
+grok plugin install claura --trust
+```
+
 (Equivalent: `claude plugin marketplace add https://github.com/scrocchi/claura`.)
 
 From a local checkout (for development):
@@ -44,10 +60,12 @@ From a local checkout (for development):
 git clone https://github.com/scrocchi/claura
 claude plugin marketplace add ./claura
 claude plugin install claura@claura-marketplace
+# or: grok plugin marketplace add ./claura && grok plugin install claura --trust
 ```
 
 That's it — no `settings.json` edits. The plugin owns its own state under
-`${CLAUDE_PLUGIN_DATA}`.
+`${CLAUDE_PLUGIN_DATA}` (or `${GROK_PLUGIN_DATA}`). If a Claude data dir is
+already bootstrapped, Grok reuses it so sounds and volume stay shared.
 
 ### Requirements
 
@@ -70,10 +88,13 @@ Then point Claura at it:
 
 ```
 /claura:menu set sound <name>
+/claura:menu set sound <name> grok    # only the Grok player
 ```
 
 (Without the `.mp3` extension.) `/claura:menu status` lists every sound it
-can find under `available_sounds`.
+can find under `available_sounds`, plus `host`, `hosts`, and
+`sound_for_host`. The top-level `sound` key is Claude's default; Grok reads
+`hosts.grok.sound` when set.
 
 ## Configure
 
@@ -85,7 +106,8 @@ The slash command is the supported interface:
 /claura:menu off                 # disable + stop player
 /claura:menu mute                # mute + stop player
 /claura:menu set volume 60       # 0..100; restarts player so it applies right away
-/claura:menu set sound <name>    # name must resolve to a .mp3; restarts player
+/claura:menu set sound <name>           # Claude default (or current host)
+/claura:menu set sound <name> grok      # Grok override only
 ```
 
 `status` returns one line of JSON with: `enabled`, `sound`, `volume`,

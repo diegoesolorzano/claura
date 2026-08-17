@@ -3,6 +3,24 @@
 All notable changes to this project are documented here. Versioning follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.1] — 2026-08-17
+
+### Added
+
+- Grok host support: same plugin, separate player and optional sound.
+  Hook payloads accept camelCase (`sessionId`) and snake_case. Grok's
+  `StopCancelled` (Escape) and `Notification` / `permission_prompt` are
+  wired. The CPU sampler follows `grok` / `grok-*` as well as `claude`.
+- Per-host sound: `hosts.<name>.sound` overrides the default `sound`.
+  `/claura:menu set sound NAME [host]`.
+- Shared data-dir discovery: a bootstrapped Claude data dir is reused by
+  Grok so existing sounds and volume carry over.
+
+### Changed
+
+- Stop chime plays only on a genuine turn end (`reason` empty or
+  `end_turn`), so Grok's session-teardown Stop does not ding.
+
 ## [0.1.0] — 2026-05-28
 
 Initial release. **macOS-only.**

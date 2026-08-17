@@ -1,7 +1,7 @@
 {
   "name": "claura",
-  "version": "0.1.0",
-  "description": "Ambient audio for Claude Code — plays a soundscape while Claude works, stops the instant it's idle.",
+  "version": "0.1.1",
+  "description": "Ambient audio for Claude Code and Grok — plays a soundscape while the host works, stops the instant it's idle.",
   "author": {
     "name": "scrocchi",
     "email": "projects@scrocchi.co"
