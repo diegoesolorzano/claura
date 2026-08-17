@@ -72,8 +72,18 @@ input=""
 [[ ! -t 0 ]] && input=$(cat 2>/dev/null || true)
 session_id=$(claura_json_get "$input" sessionId session_id)
 hook_evt=$(claura_json_get "$input" hookEventName hook_event_name)
+prompt_id=$(claura_json_get "$input" promptId prompt_id)
+subagent=$(claura_json_get "$input" subagentType subagent_type)
+stop_hook_active=$(claura_json_get "$input" stopHookActive stop_hook_active)
 [[ -z "$session_id" ]] && session_id="pid-$PPID"
 session_id=$(printf '%s' "$session_id" | tr -cd 'a-zA-Z0-9-')
+prompt_id=$(printf '%s' "$prompt_id" | tr -cd 'a-zA-Z0-9-')
+
+# A subagent's stop/end is not the host session's. Ignore it so a child's
+# SessionEnd cannot reap the parent's working file.
+if [[ -n "$subagent" ]]; then
+  exit 0
+fi
 
 # Host executable (claude | grok | grok-*). Empty → timestamp staleness.
 host_pid=$(claura_find_host_pid)
@@ -100,6 +110,24 @@ done
 echo "$$" > "$LOCK_DIR/owner"
 trap 'rm -rf "$LOCK_DIR"' EXIT
 
+# --- promote pre-0.1.1 state (claude only) ---------------------------------
+# Loose sessions/<sid> and player.pid belong to Claude. Move them into the
+# namespaced layout so the new globs see them and the old player.pid is not
+# left running beside player.claude.pid.
+if [[ "$HOST" == "claude" ]]; then
+  legacy_sessions="$STATE_DIR/sessions"
+  for f in "$legacy_sessions"/*; do
+    [[ -f "$f" ]] || continue
+    mv "$f" "$SESSIONS_DIR/$(basename "$f")"
+  done
+  if [[ -f "$STATE_DIR/player.pid" && ! -f "$PLAYER_PID_FILE" ]]; then
+    mv "$STATE_DIR/player.pid" "$PLAYER_PID_FILE"
+  fi
+  if [[ -f "$STATE_DIR/player.root" && ! -f "$PLAYER_ROOT_FILE" ]]; then
+    mv "$STATE_DIR/player.root" "$PLAYER_ROOT_FILE"
+  fi
+fi
+
 # --- root-mismatch killswitch ----------------------------------------------
 # If a player is running but was spawned from a different ${CLAUDE_PLUGIN_ROOT}
 # (e.g. `claude plugin update` swapped the install path), kill it so the
@@ -124,12 +152,31 @@ fi
 case "$cmd" in
   working)
     echo "$host_pid" > "$SESSIONS_DIR/$session_id"
+    if [[ -n "$prompt_id" ]]; then
+      printf '%s\n' "$prompt_id" > "$SESSIONS_DIR/$session_id.prompt"
+    fi
     ;;
   idle|end)
-    rm -f "$SESSIONS_DIR/$session_id" \
-          "$SESSIONS_DIR/$session_id.cpu" \
-          "$BASELINE_DIR/$session_id" \
-          "$BASELINE_DIR/$session_id.degraded"
+    # Grok's Stop is a gate: a continuation fire (stopHookActive) is not idle.
+    # A cancelled turn's report can arrive after the next UserPromptSubmit —
+    # ignore an idle whose promptId is older than the one we recorded.
+    skip_idle=false
+    if [[ "$stop_hook_active" == "true" ]]; then
+      skip_idle=true
+    fi
+    if [[ -n "$prompt_id" && -f "$SESSIONS_DIR/$session_id.prompt" ]]; then
+      stored_prompt=$(cat "$SESSIONS_DIR/$session_id.prompt" 2>/dev/null || true)
+      if [[ -n "$stored_prompt" && "$stored_prompt" != "$prompt_id" ]]; then
+        skip_idle=true
+      fi
+    fi
+    if [[ "$skip_idle" != true ]]; then
+      rm -f "$SESSIONS_DIR/$session_id" \
+            "$SESSIONS_DIR/$session_id.cpu" \
+            "$SESSIONS_DIR/$session_id.prompt" \
+            "$BASELINE_DIR/$session_id" \
+            "$BASELINE_DIR/$session_id.degraded"
+    fi
     ;;
   *) exit 0 ;;
 esac
@@ -142,15 +189,15 @@ active=0
 shopt -s nullglob
 for f in "$SESSIONS_DIR"/*; do
   [[ -d "$f" ]] && continue
-  [[ "$f" == *.cpu ]] && continue
+  [[ "$f" == *.cpu || "$f" == *.prompt ]] && continue
   pid=$(cat "$f" 2>/dev/null)
   mtime=$(stat_mtime "$f")
   if [[ -n "$pid" ]] && ! kill -0 "$pid" 2>/dev/null; then
-    rm -f "$f" "$f.cpu" "$BASELINE_DIR/$(basename "$f")" "$BASELINE_DIR/$(basename "$f").degraded"
+    rm -f "$f" "$f.cpu" "$f.prompt" "$BASELINE_DIR/$(basename "$f")" "$BASELINE_DIR/$(basename "$f").degraded"
     continue
   fi
   if (( now - mtime >= MAX_STALE )); then
-    rm -f "$f" "$f.cpu" "$BASELINE_DIR/$(basename "$f")" "$BASELINE_DIR/$(basename "$f").degraded"
+    rm -f "$f" "$f.cpu" "$f.prompt" "$BASELINE_DIR/$(basename "$f")" "$BASELINE_DIR/$(basename "$f").degraded"
     continue
   fi
   active=$((active+1))

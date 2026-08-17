@@ -71,6 +71,15 @@ got=$(cd "$got" && pwd -P)
 want=$(cd "$boot" && pwd -P)
 assert_eq "$got" "$want" "data_dir prefers bootstrapped Claude dir over empty GROK_PLUGIN_DATA"
 
+# --- data dir: Grok sets BOTH envs to a fresh dir; Claude bootstrapped wins --
+unset _CLAURA_DATA_DIR
+export CLAUDE_PLUGIN_DATA="$GROK_PLUGIN_DATA"
+got=$(claura_data_dir)
+got=$(cd "$got" && pwd -P)
+want=$(cd "$boot" && pwd -P)
+assert_eq "$got" "$want" "data_dir prefers bootstrapped Claude when Grok aliases both envs to a fresh dir"
+unset CLAUDE_PLUGIN_DATA
+
 # --- data dir: GROK_PLUGIN_DATA when nothing bootstrapped -------------------
 rm -rf "$tmp_home/.claude"
 unset _CLAURA_DATA_DIR

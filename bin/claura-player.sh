@@ -211,7 +211,7 @@ any_alive() {
     [[ -e "$f" ]] || continue
     [[ -d "$f" ]] && continue
     # skip sidecars: they're metadata for the main file
-    [[ "$f" == *.cpu ]] && continue
+    [[ "$f" == *.cpu || "$f" == *.prompt ]] && continue
     sid=$(basename "$f")
     pid=$(cat "$f" 2>/dev/null)
     # process gone -> reap (main + sidecar + baseline)
@@ -243,7 +243,7 @@ sample_all_sessions() {
   for f in "$SESSIONS_DIR"/*; do
     [[ -e "$f" ]] || continue
     [[ -d "$f" ]] && continue
-    [[ "$f" == *.cpu ]] && continue
+    [[ "$f" == *.cpu || "$f" == *.prompt ]] && continue
     sid=$(basename "$f")
     pid=$(cat "$f" 2>/dev/null)
     [[ -z "$pid" ]] && continue
