@@ -22,8 +22,8 @@ os_detect() {
 }
 
 # --- host --------------------------------------------------------------------
-# Known hosts: claude | grok. CLAURA_HOST overrides detection so another
-# runtime (OpenCode) can drive the same controller without spoofing env.
+# Known hosts: claude | grok | codex. CLAURA_HOST overrides detection so
+# adapters such as OpenCode can drive the same controller without spoofing env.
 claura_sanitize_host() {
   local h
   h=$(printf '%s' "${1:-}" | tr '[:upper:]' '[:lower:]' | tr -cd 'a-z0-9-')
@@ -42,6 +42,11 @@ claura_detect_host() {
   if [[ -n "${GROK_PLUGIN_ROOT:-}" || -n "${GROK_PLUGIN_DATA:-}" \
      || -n "${GROK_SESSION_ID:-}" || -n "${GROK_HOOK_EVENT:-}" ]]; then
     printf 'grok\n'
+    return 0
+  fi
+  if [[ -n "${CODEX_HOME:-}" || -n "${CODEX_THREAD_ID:-}" \
+     || -n "${CODEX_SESSION_ID:-}" ]]; then
+    printf 'codex\n'
     return 0
   fi
   printf 'claude\n'
@@ -65,18 +70,18 @@ claura_json_get() {
 }
 
 # Walk up from PID (default: $PPID) looking for the host executable.
-# Matches `claude`, `grok`, `grok-*`, and `opencode`.
+# Matches `claude`, `grok`, `grok-*`, `codex`, and `opencode`.
 claura_find_host_pid() {
   local pid="${1:-$PPID}" base cmdline
   for _ in $(seq 1 10); do
     [[ -z "$pid" || "$pid" -le 1 ]] && break
     base=$(ps -o comm= -p "$pid" 2>/dev/null); base=${base##*/}
     case "$base" in
-      claude|grok|grok-*|opencode) printf '%s\n' "$pid"; return 0 ;;
+      claude|grok|grok-*|codex|opencode) printf '%s\n' "$pid"; return 0 ;;
     esac
     if [[ "$base" == node* || "$base" == bun* ]]; then
       cmdline=$(ps -o command= -p "$pid" 2>/dev/null)
-      if [[ "$cmdline" == *claude* || "$cmdline" == *grok* || "$cmdline" == *opencode* ]]; then
+      if [[ "$cmdline" == *claude* || "$cmdline" == *grok* || "$cmdline" == *codex* || "$cmdline" == *opencode* ]]; then
         printf '%s\n' "$pid"
         return 0
       fi
@@ -96,6 +101,9 @@ claura_pgrep_host() {
       ;;
     claude)
       pgrep -x claude 2>/dev/null | head -1
+      ;;
+    codex)
+      pgrep -x codex 2>/dev/null | head -1
       ;;
     opencode)
       pgrep -x opencode 2>/dev/null | head -1
@@ -117,15 +125,15 @@ claura_resolve_host_pid() {
 # Resolution order:
 #   1. $CLAURA_DATA_DIR
 #   2. a bootstrapped dir under ~/.claude/plugins/data/claura* or
-#      ~/.grok/plugins/data/claura* (config.json or state/) — so Grok reuses
-#      the Claude install's sounds/config instead of starting empty
-#   3. $GROK_PLUGIN_DATA / $CLAUDE_PLUGIN_DATA
+#      ~/.grok/plugins/data/claura* or ~/.codex/plugins/data/claura*
+#      (config.json or state/) — so hosts reuse one sound/config directory
+#   3. $GROK_PLUGIN_DATA / $CODEX_PLUGIN_DATA / $CLAUDE_PLUGIN_DATA
 #   4. ~/.claude/plugins/data/claura
 claura_discover_data_dirs() {
   local base d resolved found="" restore
   restore=$(shopt -p nullglob 2>/dev/null || true)
   shopt -s nullglob
-  for base in "$HOME/.claude/plugins/data" "$HOME/.grok/plugins/data"; do
+  for base in "$HOME/.claude/plugins/data" "$HOME/.grok/plugins/data" "$HOME/.codex/plugins/data"; do
     for d in "$base"/claura "$base"/claura-*; do
       [[ -d "$d" ]] || continue
       [[ -f "$d/config.json" || -d "$d/state" ]] || continue
@@ -159,7 +167,7 @@ claura_data_dir() {
     _CLAURA_DATA_DIR="$found"
   elif (( count > 1 )); then
     first=$(printf '%s\n' "$found" | head -1)
-    for candidate in "${GROK_PLUGIN_DATA:-}" "${CLAUDE_PLUGIN_DATA:-}"; do
+    for candidate in "${GROK_PLUGIN_DATA:-}" "${CODEX_PLUGIN_DATA:-}" "${CLAUDE_PLUGIN_DATA:-}"; do
       [[ -z "$candidate" ]] && continue
       res=$(cd "$candidate" 2>/dev/null && pwd -P) || continue
       if printf '%s\n' "$found" | grep -qxF -- "$res"; then
@@ -170,6 +178,8 @@ claura_data_dir() {
     _CLAURA_DATA_DIR="$first"
   elif [[ -n "${GROK_PLUGIN_DATA:-}" ]]; then
     _CLAURA_DATA_DIR="$GROK_PLUGIN_DATA"
+  elif [[ -n "${CODEX_PLUGIN_DATA:-}" ]]; then
+    _CLAURA_DATA_DIR="$CODEX_PLUGIN_DATA"
   elif [[ -n "${CLAUDE_PLUGIN_DATA:-}" ]]; then
     _CLAURA_DATA_DIR="$CLAUDE_PLUGIN_DATA"
   else
@@ -179,7 +189,7 @@ claura_data_dir() {
 }
 
 claura_root_dir() {
-  printf '%s\n' "${CLAUDE_PLUGIN_ROOT:-${GROK_PLUGIN_ROOT:-}}"
+  printf '%s\n' "${CLAUDE_PLUGIN_ROOT:-${GROK_PLUGIN_ROOT:-${CODEX_PLUGIN_ROOT:-}}}"
 }
 
 claura_sessions_dir() {
