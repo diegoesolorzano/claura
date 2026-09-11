@@ -1,6 +1,6 @@
 {
   "name": "claura-marketplace",
-  "description": "Single-plugin marketplace for Claura, the macOS ambient-audio plugin for Claude Code and Grok.",
+  "description": "Single-plugin marketplace for Claura, the macOS ambient-audio plugin for Claude Code, Grok, and Codex.",
   "owner": {
     "name": "scrocchi"
   },
@@ -9,7 +9,7 @@
       "name": "claura",
       "source": "./",
       "version": "0.1.1",
-      "description": "Ambient audio for Claude Code and Grok (macOS).",
+      "description": "Ambient audio for Claude Code, Grok, and Codex (macOS).",
       "category": "productivity",
       "tags": [
         "audio",

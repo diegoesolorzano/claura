@@ -236,7 +236,7 @@ any_alive() {
       # Grok spends most of a turn blocked on the API (<5% CPU), so the
       # Claude hysteresis would reap mid-track and skip the next loop.
       # The controller deletes this file on Stop/idle; until then, keep it.
-      if [[ "$HOST" == "grok" || "$HOST" == "opencode" ]] && claura_pgrep_host "$HOST" >/dev/null; then
+      if [[ "$HOST" == "grok" || "$HOST" == "codex" || "$HOST" == "opencode" ]] && claura_pgrep_host "$HOST" >/dev/null; then
         found=0
         continue
       fi

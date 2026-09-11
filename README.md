@@ -6,11 +6,12 @@
 
 [![validate](https://github.com/scrocchi/claura/actions/workflows/validate.yml/badge.svg)](https://github.com/scrocchi/claura/actions/workflows/validate.yml)
 
-Ambient audio for [Claude Code](https://claude.com/claude-code) and
-[Grok](https://grok.com). Plays a soundscape while the host is working and
+Ambient audio for [Claude Code](https://claude.com/claude-code),
+[Grok](https://grok.com), and [Codex](https://developers.openai.com/codex/cli).
+Plays a soundscape while the host is working and
 stops the instant it goes idle — even when you press Escape mid-generation.
 
-Each host has its own player and can use its own sound, so Claude and Grok
+Each host has its own player and can use its own sound, so Claude, Grok, and Codex
 can run at the same time without sharing a track.
 
 **0.1.1 ships macOS-only.** Linux and Windows are planned for 0.2.0+.
@@ -22,7 +23,7 @@ Hooks (`SessionStart`, `UserPromptSubmit`, `PreToolUse`, `PostToolUse`,
 `SessionEnd`) drive a small controller that registers/unregisters each
 session per host. A background player runs as long as that host has a
 "working" session. Aliveness is refreshed by both hook events and a CPU
-sampler watching the host process tree (`claude` or `grok`), so the audio
+sampler watching the host process tree (`claude`, `grok`, or `codex`), so the audio
 survives long model thinking (hooks don't fire then) but cuts within ~10s
 of Escape or idle.
 
@@ -51,6 +52,18 @@ Grok (same marketplace; trust the plugin so its hooks run):
 grok plugin marketplace add scrocchi/claura
 grok plugin install claura --trust
 ```
+
+Codex (same marketplace; trust the plugin hooks when prompted):
+
+```sh
+codex plugin marketplace add scrocchi/claura
+codex plugin add claura@claura-marketplace
+```
+
+Codex sends the same snake_case hook payload accepted by the controller. Claura
+detects `CODEX_HOME`/`CODEX_THREAD_ID`/`CODEX_SESSION_ID`, keeps Codex state under its own host
+namespace, and uses the live `codex` process to keep long turns playing between
+hook events.
 
 (Equivalent: `claude plugin marketplace add https://github.com/scrocchi/claura`.)
 
@@ -119,9 +132,11 @@ The slash command is the supported interface:
 /claura:menu set volume 60           # default / Claude
 /claura:menu set volume 80 grok      # Grok only
 /claura:menu set volume 40 opencode  # OpenCode only
+/claura:menu set volume 40 codex     # Codex only
 /claura:menu set sound <name>           # Claude default (or current host)
 /claura:menu set sound <name> grok      # Grok override only
 /claura:menu set sound <name> opencode  # OpenCode override only
+/claura:menu set sound <name> codex     # Codex override only
 ```
 
 `status` returns one line of JSON with: `enabled`, `sound`, `volume`,

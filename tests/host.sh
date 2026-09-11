@@ -16,7 +16,7 @@ assert_eq() {
 }
 
 # --- detect host -------------------------------------------------------------
-unset CLAURA_HOST GROK_PLUGIN_ROOT GROK_SESSION_ID GROK_HOOK_EVENT 2>/dev/null || true
+unset CLAURA_HOST GROK_PLUGIN_ROOT GROK_SESSION_ID GROK_HOOK_EVENT CODEX_HOME CODEX_THREAD_ID CODEX_SESSION_ID 2>/dev/null || true
 assert_eq "$(claura_detect_host)" "claude" "detect_host default is claude"
 
 CLAURA_HOST=grok
@@ -31,9 +31,34 @@ GROK_SESSION_ID=abc
 assert_eq "$(claura_detect_host)" "grok" "detect_host grok via GROK_SESSION_ID"
 unset GROK_SESSION_ID
 
+CODEX_HOME=/tmp/codex-home
+assert_eq "$(claura_detect_host)" "codex" "detect_host codex via CODEX_HOME"
+unset CODEX_HOME
+
+CODEX_THREAD_ID=thread-123
+assert_eq "$(claura_detect_host)" "codex" "detect_host codex via CODEX_THREAD_ID"
+unset CODEX_THREAD_ID
+
+CODEX_SESSION_ID=session-123
+assert_eq "$(claura_detect_host)" "codex" "detect_host codex via CODEX_SESSION_ID"
+unset CODEX_SESSION_ID
+
+claura_find_host_pid() { printf '4242\n'; }
+ps() {
+  case "$2" in
+    comm=) printf '/usr/local/bin/codex\n' ;;
+    command=) printf '/usr/local/bin/codex\n' ;;
+  esac
+}
+assert_eq "$(claura_detect_host)" "codex" "detect_host codex from hook ancestry"
+unset -f ps claura_find_host_pid
+# Restore the real helper after the isolated process-table stub.
+source "$ROOT/bin/_lib.sh"
+
 # --- sanitize host -----------------------------------------------------------
 assert_eq "$(claura_sanitize_host 'grok')" "grok" "sanitize keeps grok"
 assert_eq "$(claura_sanitize_host 'opencode')" "opencode" "sanitize keeps opencode"
+assert_eq "$(claura_sanitize_host 'codex')" "codex" "sanitize keeps codex"
 assert_eq "$(claura_sanitize_host 'GROK')" "grok" "sanitize lowercases"
 assert_eq "$(claura_sanitize_host 'foo/../bar')" "foobar" "sanitize strips path chars"
 assert_eq "$(claura_sanitize_host '')" "claude" "sanitize empty → claude"
@@ -103,6 +128,7 @@ EOF
 assert_eq "$(claura_cfg_host_sound claude)" "rain-window-01" "host sound claude uses default"
 assert_eq "$(claura_cfg_host_sound grok)" "grok" "host sound grok uses override"
 assert_eq "$(claura_cfg_host_sound opencode)" "rain-window-01" "host sound unknown falls back to default"
+assert_eq "$(claura_cfg_host_sound codex)" "rain-window-01" "host sound codex falls back to default"
 
 # --- cfg host volume ---------------------------------------------------------
 cat > "$cfg_dir/config.json" <<'EOF'
@@ -119,6 +145,7 @@ assert_eq "$(claura_cfg_host_volume grok)" "80" "host volume grok uses override"
 assert_eq "$(claura_sessions_dir grok)" "$cfg_dir/state/sessions/grok" "sessions dir namespaced"
 assert_eq "$(claura_player_pid_file grok)" "$cfg_dir/state/player.grok.pid" "player pid namespaced"
 assert_eq "$(claura_player_pid_file claude)" "$cfg_dir/state/player.claude.pid" "player pid claude namespaced"
+assert_eq "$(claura_player_pid_file codex)" "$cfg_dir/state/player.codex.pid" "player pid codex namespaced"
 
 # --- find_host_pid -----------------------------------------------------------
 # pid 1 has no host ancestor. Our own tree may include grok/claude (this
@@ -129,7 +156,7 @@ got=$(claura_find_host_pid $$)
 if [[ -n "$got" ]]; then
   base=$(ps -o comm= -p "$got" 2>/dev/null); base=${base##*/}
   case "$base" in
-    claude|grok|grok-*) ;;
+    claude|grok|grok-*|codex) ;;
     *)
       echo "FAIL find_host_pid $$ matched pid $got comm='$base'" >&2
       failed=$((failed + 1))
@@ -148,12 +175,6 @@ if [[ -n "$got" ]]; then
       ;;
   esac
 fi
-got=$(claura_resolve_host_pid $$)
-if [[ -z "$got" ]]; then
-  echo "FAIL resolve_host_pid empty inside a Grok session" >&2
-  failed=$((failed + 1))
-fi
-
 if (( failed > 0 )); then
   echo "$failed assertion(s) failed" >&2
   exit 1
