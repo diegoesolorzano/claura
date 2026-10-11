@@ -12,7 +12,15 @@ import { spawn } from 'node:child_process'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 
-const HOST = 'opencode'
+// Orca launches opencode under its own overlay config dir and injects ORCA_* env
+// into that process, so the same plugin can report a different Claura host for the
+// Orca CLI vs the GUI / a plain terminal — and thus play different sounds per host
+// (hosts.<host>.sound in Claura config). An explicit CLAURA_HOST wins if set.
+const HOST =
+  process.env.CLAURA_HOST ||
+  (process.env.ORCA_PANE_KEY || process.env.ORCA_OPENCODE_CONFIG_DIR
+    ? 'opencode-orca'
+    : 'opencode-gui')
 
 function findClauraRoot() {
   if (process.env.CLAURA_PLUGIN_ROOT && existsSync(join(process.env.CLAURA_PLUGIN_ROOT, 'bin/claura-control.sh'))) {
