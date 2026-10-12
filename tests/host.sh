@@ -148,11 +148,14 @@ if [[ -n "$got" ]]; then
       ;;
   esac
 fi
-got=$(claura_resolve_host_pid $$)
-if [[ -z "$got" ]]; then
-  echo "FAIL resolve_host_pid empty inside a Grok session" >&2
-  failed=$((failed + 1))
-fi
+# resolve_host_pid prefers a host ancestor and falls back to pgrep. Stub pgrep so the
+# result does not depend on an agent process running on this machine (CI has none).
+pgrep() { printf '4242\n'; }
+assert_eq "$(claura_resolve_host_pid 1)" "4242" "resolve_host_pid falls back to pgrep"
+pgrep() { :; }
+got=$(claura_resolve_host_pid 1 || true)
+assert_eq "$got" "" "resolve_host_pid is empty when no host process exists"
+unset -f pgrep
 
 if (( failed > 0 )); then
   echo "$failed assertion(s) failed" >&2
