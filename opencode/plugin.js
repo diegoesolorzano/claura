@@ -100,10 +100,15 @@ function chime(kind) {
   run(CHIME, [kind], {})
 }
 
-export const OpenCodeAura = async () => {
+function warnIfMissing() {
   if (!CONTROL) {
     console.error('claura opencode adapter: claura-control.sh not found. Install Claura (Claude or Grok plugin) first.')
   }
+}
+
+// OpenCode 1.x hook table, returned by server() below.
+const OpenCodeAura = async () => {
+  warnIfMissing()
   return {
     'tool.execute.before': async ({ sessionID }) => {
       control('working', sessionID)
@@ -137,4 +142,55 @@ export const OpenCodeAura = async () => {
   }
 }
 
-export default OpenCodeAura
+// OpenCode 2 reports through ctx.event. Event names come from the v2.0.26 binary and
+// the data.sessionID payload was captured from a live v2 session; permission.* and
+// session.deleted payloads are unverified, so control() falls back to a pid-based id.
+function onV2Event(event) {
+  const sessionID = event?.data?.sessionID
+  switch (event?.type) {
+    case 'session.execution.started':
+      control('working', sessionID)
+      break
+    case 'session.execution.succeeded':
+      chime('stop')
+      control('idle', sessionID)
+      break
+    case 'session.execution.failed':
+    case 'session.execution.interrupted':
+      control('idle', sessionID)
+      break
+    case 'permission.asked':
+      chime('permission')
+      control('idle', sessionID)
+      break
+    case 'permission.replied':
+      control('working', sessionID)
+      break
+    case 'session.deleted':
+      control('end', sessionID)
+      break
+  }
+}
+
+// Dual export: v2 reads id + setup() and ignores server(); OpenCode >= 1.18.29 (v1
+// object form) calls server() and uses the hooks it returns. A bare function default
+// export is rejected by v2 ("Plugin must export a default definition with an id").
+export default {
+  id: 'claura',
+  server: OpenCodeAura,
+  async setup(ctx) {
+    warnIfMissing()
+    const controller = new AbortController()
+    const registration = await ctx.tool.hook('execute.before', (event) => {
+      control('working', event.sessionID)
+    })
+    const subscription = (async () => {
+      for await (const event of ctx.event.subscribe({ signal: controller.signal })) onV2Event(event)
+    })().catch(() => {})
+    return async () => {
+      controller.abort()
+      await subscription
+      await registration?.dispose?.()
+    }
+  },
+}

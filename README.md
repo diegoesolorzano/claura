@@ -72,7 +72,7 @@ ln -sf "$(pwd)/opencode/plugin.js" ~/.config/opencode/plugins/claura.js
 # /claura:menu set sound birds opencode
 ```
 
-The adapter drives the same `claura-control.sh` with `CLAURA_HOST=opencode`. It looks for an existing Claura install under `CLAURA_PLUGIN_ROOT`, `~/.grok/plugins/claura`, or the Claude plugin cache.
+The adapter drives the same `claura-control.sh` with `CLAURA_HOST` set to `opencode-orca` (under Orca) or `opencode-gui` (anywhere else); set `hosts.<name>.sound` to tell them apart. It works with OpenCode 2 and with OpenCode 1.18.29 or newer. It looks for an existing Claura install under `CLAURA_PLUGIN_ROOT`, `~/.grok/plugins/claura`, or the Claude plugin cache.
 
 That's it — no `settings.json` edits. The plugin owns its own state under
 `${CLAUDE_PLUGIN_DATA}` (or `${GROK_PLUGIN_DATA}`). If a Claude data dir is

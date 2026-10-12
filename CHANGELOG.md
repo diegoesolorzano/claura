@@ -3,6 +3,24 @@
 All notable changes to this project are documented here. Versioning follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- OpenCode 2: the adapter was rejected at load ("Plugin must export a default
+  definition with an id and an effect or setup function"), so it never played
+  anything under the v2 service. The default export is now an object with `id`,
+  `setup(ctx)` (v2, subscribes to `session.execution.*` / `permission.*`) and
+  `server()` (v1 object form, OpenCode >= 1.18.29). Older v1 releases that only
+  accept a function export are no longer supported.
+
+### Added
+
+- OpenCode host label per surface: `opencode-orca` when running under Orca
+  (`ORCA_PANE_KEY` / `ORCA_OPENCODE_CONFIG_DIR`), `opencode-gui` otherwise, so
+  `hosts.<name>.sound` can differ between them. `CLAURA_HOST` still wins.
+- `tests/opencode-plugin.sh` pins the v2 export shape and the event mapping.
+
 ## [0.1.1] — 2026-08-17
 
 ### Added
