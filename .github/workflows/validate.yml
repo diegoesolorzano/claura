@@ -16,14 +16,27 @@ jobs:
       - name: Install shellcheck
         run: brew install shellcheck
 
-      - name: claude plugin validate --strict
-        run: claude plugin validate --strict .
+      # hooks.json carries Grok-only events (StopCancelled) that Claude Code does not know,
+      # so --strict would reject a deliberate entry. Stay strict for every other warning.
+      - name: claude plugin validate (strict, except Grok-only hook events)
+        run: |
+          out=$(claude plugin validate . 2>&1) || { echo "$out"; exit 1; }
+          echo "$out"
+          total=$(echo "$out" | grep -oE 'Found [0-9]+ warning' | grep -oE '[0-9]+' | head -1 || true)
+          tolerated=$(echo "$out" | grep -cE 'hooks\.StopCancelled: unknown hook event' || true)
+          if [ "${total:-0}" -gt "${tolerated:-0}" ]; then
+            echo "::error::unexpected plugin validation warnings (${total} found, ${tolerated} tolerated)"
+            exit 1
+          fi
 
       - name: bash -n on every script
         run: bash -n bin/*.sh
 
       - name: shellcheck (blocking)
         run: shellcheck -s bash bin/*.sh
+
+      - name: unit tests
+        run: bash tests/run.sh
 
       - name: Smoke — CLAUDE_PLUGIN_ROOT with a space
         run: |

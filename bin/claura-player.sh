@@ -46,11 +46,12 @@ os_detect >/dev/null
 
 DATA_DIR=$(claura_data_dir)
 STATE_DIR="$DATA_DIR/state"
-SESSIONS_DIR="$STATE_DIR/sessions"
-BASELINE_DIR="$STATE_DIR/baseline"
-PLAYER_PID_FILE="$STATE_DIR/player.pid"
-PLAYER_ROOT_FILE="$STATE_DIR/player.root"
-CPU_LOG="$STATE_DIR/cpu.log"
+HOST=$(claura_sanitize_host "${CLAURA_HOST:-$(claura_detect_host)}")
+SESSIONS_DIR=$(claura_sessions_dir "$HOST")
+BASELINE_DIR=$(claura_baseline_dir "$HOST")
+PLAYER_PID_FILE=$(claura_player_pid_file "$HOST")
+PLAYER_ROOT_FILE=$(claura_player_root_file "$HOST")
+CPU_LOG="$STATE_DIR/cpu.$HOST.log"
 TRANSCRIPT_ROOT="${CLAUDE_CONFIG_DIR:-$HOME/.claude}/projects"
 
 mkdir -p "$BASELINE_DIR" "$SESSIONS_DIR"
@@ -62,8 +63,8 @@ if [[ -n "$CURRENT_ROOT" ]]; then
 fi
 
 # --- config (read ONCE) -----------------------------------------------------
-SOUND=$(claura_cfg_get sound birds)
-VOLUME=$(claura_cfg_get volume 100)
+SOUND=$(claura_cfg_host_sound "$HOST")
+VOLUME=$(claura_cfg_host_volume "$HOST")
 THRESHOLD=$(claura_cfg_get threshold 5)
 HYSTERESIS=$(claura_cfg_get hysteresis 10)
 MAX_STALE=$(claura_cfg_get max_stale 75)
@@ -208,14 +209,21 @@ any_alive() {
   now=$(date_epoch)
   for f in "$SESSIONS_DIR"/*; do
     [[ -e "$f" ]] || continue
+    [[ -d "$f" ]] && continue
     # skip sidecars: they're metadata for the main file
-    [[ "$f" == *.cpu ]] && continue
+    [[ "$f" == *.cpu || "$f" == *.prompt ]] && continue
     sid=$(basename "$f")
     pid=$(cat "$f" 2>/dev/null)
-    # process gone -> reap (main + sidecar + baseline)
+    # process gone -> rebind to the live host binary, else reap
     if [[ -n "$pid" ]] && ! kill -0 "$pid" 2>/dev/null; then
-      rm -f "$f" "$f.cpu" "$BASELINE_DIR/$sid" "$BASELINE_DIR/$sid.degraded"
-      continue
+      rebound=$(claura_pgrep_host "$HOST")
+      if [[ -n "$rebound" ]]; then
+        printf '%s\n' "$rebound" > "$f"
+        pid="$rebound"
+      else
+        rm -f "$f" "$f.cpu" "$f.prompt" "$BASELINE_DIR/$sid" "$BASELINE_DIR/$sid.degraded"
+        continue
+      fi
     fi
     emtime=$(effective_mtime "$f")
     # pick limit based on whether CPU is working for this session
@@ -225,7 +233,14 @@ any_alive() {
       limit=$HYSTERESIS
     fi
     if (( now - emtime >= limit )); then
-      rm -f "$f" "$f.cpu" "$BASELINE_DIR/$sid" "$BASELINE_DIR/$sid.degraded"
+      # Grok spends most of a turn blocked on the API (<5% CPU), so the
+      # Claude hysteresis would reap mid-track and skip the next loop.
+      # The controller deletes this file on Stop/idle; until then, keep it.
+      if [[ "$HOST" == "grok" || "$HOST" == "opencode" ]] && claura_pgrep_host "$HOST" >/dev/null; then
+        found=0
+        continue
+      fi
+      rm -f "$f" "$f.cpu" "$f.prompt" "$BASELINE_DIR/$sid" "$BASELINE_DIR/$sid.degraded"
       continue
     fi
     found=0
@@ -240,7 +255,8 @@ sample_all_sessions() {
   now=$(date_epoch)
   for f in "$SESSIONS_DIR"/*; do
     [[ -e "$f" ]] || continue
-    [[ "$f" == *.cpu ]] && continue
+    [[ -d "$f" ]] && continue
+    [[ "$f" == *.cpu || "$f" == *.prompt ]] && continue
     sid=$(basename "$f")
     pid=$(cat "$f" 2>/dev/null)
     [[ -z "$pid" ]] && continue

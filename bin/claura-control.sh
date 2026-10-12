@@ -29,10 +29,11 @@ os_detect >/dev/null
 
 DATA_DIR=$(claura_data_dir)
 STATE_DIR="$DATA_DIR/state"
-SESSIONS_DIR="$STATE_DIR/sessions"
-BASELINE_DIR="$STATE_DIR/baseline"
-PLAYER_PID_FILE="$STATE_DIR/player.pid"
-PLAYER_ROOT_FILE="$STATE_DIR/player.root"
+HOST=$(claura_detect_host)
+SESSIONS_DIR=$(claura_sessions_dir "$HOST")
+BASELINE_DIR=$(claura_baseline_dir "$HOST")
+PLAYER_PID_FILE=$(claura_player_pid_file "$HOST")
+PLAYER_ROOT_FILE=$(claura_player_root_file "$HOST")
 LOCK_DIR="$STATE_DIR/lock.d"
 BOOTSTRAPPED="$DATA_DIR/.bootstrapped"
 LEGACY_DETECTED="$DATA_DIR/.legacy-detected"
@@ -66,42 +67,29 @@ cmd="${1:-}"
 [[ -z "$cmd" ]] && exit 0
 
 # --- session_id from stdin JSON ---------------------------------------------
+# Claude sends snake_case; Grok sends camelCase. First non-empty wins.
 input=""
 [[ ! -t 0 ]] && input=$(cat 2>/dev/null || true)
-session_id=""
-hook_evt=""
-if [[ -n "$input" ]] && command -v jq >/dev/null 2>&1; then
-  session_id=$(printf '%s' "$input" | jq -r '.session_id // empty' 2>/dev/null || true)
-  hook_evt=$(printf '%s' "$input" | jq -r '.hook_event_name // empty' 2>/dev/null || true)
-fi
+session_id=$(claura_json_get "$input" sessionId session_id)
+hook_evt=$(claura_json_get "$input" hookEventName hook_event_name)
+prompt_id=$(claura_json_get "$input" promptId prompt_id)
+subagent=$(claura_json_get "$input" subagentType subagent_type)
+stop_hook_active=$(claura_json_get "$input" stopHookActive stop_hook_active)
 [[ -z "$session_id" ]] && session_id="pid-$PPID"
 session_id=$(printf '%s' "$session_id" | tr -cd 'a-zA-Z0-9-')
+prompt_id=$(printf '%s' "$prompt_id" | tr -cd 'a-zA-Z0-9-')
 
-# --- find the Claude Code PID by walking up the process tree ----------------
-# The hook runs several levels below Claude Code: claude -> shell -> this
-# script. We must match the EXECUTABLE name (`claude`), not the command line —
-# the shell's command line contains the ".claude/" directory path and would
-# match a naive substring test, pinning us to the short-lived hook shell.
-# Claude Code's executable basename is "claude" (or "node" running a claude
-# cli.js). Climb up to 10 levels.
-find_claude_pid() {
-  local pid="$PPID" base cmdline
-  for _ in $(seq 1 10); do
-    [[ -z "$pid" || "$pid" -le 1 ]] && break
-    base=$(ps -o comm= -p "$pid" 2>/dev/null); base=${base##*/}
-    if [[ "$base" == "claude" ]]; then echo "$pid"; return; fi
-    if [[ "$base" == node* ]]; then
-      cmdline=$(ps -o command= -p "$pid" 2>/dev/null)
-      [[ "$cmdline" == *claude* ]] && { echo "$pid"; return; }
-    fi
-    pid=$(ps -o ppid= -p "$pid" 2>/dev/null | tr -d ' ')
-  done
-  echo ""   # unknown -> player falls back to timestamp staleness
-}
-claude_pid=$(find_claude_pid)
+# A subagent's stop/end is not the host session's. Ignore it so a child's
+# SessionEnd cannot reap the parent's working file.
+if [[ -n "$subagent" ]]; then
+  exit 0
+fi
+
+# Host executable (claude | grok | grok-*). Empty → timestamp staleness.
+host_pid=$(claura_resolve_host_pid)
 
 if [[ "$DEBUG" == "1" ]]; then
-  echo "$(date '+%H:%M:%S') cmd=$cmd evt=${hook_evt:-?} sid=${session_id:0:8} cpid=$claude_pid" \
+  echo "$(date '+%H:%M:%S') cmd=$cmd host=$HOST evt=${hook_evt:-?} sid=${session_id:0:8} hpid=$host_pid" \
     >> "$STATE_DIR/events.log" 2>/dev/null || true
 fi
 
@@ -121,6 +109,24 @@ done
 [[ "$acquired" == true ]] || exit 0
 echo "$$" > "$LOCK_DIR/owner"
 trap 'rm -rf "$LOCK_DIR"' EXIT
+
+# --- promote pre-0.1.1 state (claude only) ---------------------------------
+# Loose sessions/<sid> and player.pid belong to Claude. Move them into the
+# namespaced layout so the new globs see them and the old player.pid is not
+# left running beside player.claude.pid.
+if [[ "$HOST" == "claude" ]]; then
+  legacy_sessions="$STATE_DIR/sessions"
+  for f in "$legacy_sessions"/*; do
+    [[ -f "$f" ]] || continue
+    mv "$f" "$SESSIONS_DIR/$(basename "$f")"
+  done
+  if [[ -f "$STATE_DIR/player.pid" && ! -f "$PLAYER_PID_FILE" ]]; then
+    mv "$STATE_DIR/player.pid" "$PLAYER_PID_FILE"
+  fi
+  if [[ -f "$STATE_DIR/player.root" && ! -f "$PLAYER_ROOT_FILE" ]]; then
+    mv "$STATE_DIR/player.root" "$PLAYER_ROOT_FILE"
+  fi
+fi
 
 # --- root-mismatch killswitch ----------------------------------------------
 # If a player is running but was spawned from a different ${CLAUDE_PLUGIN_ROOT}
@@ -145,13 +151,32 @@ fi
 # sidecar `touch` right after rm from creating a ghost session.
 case "$cmd" in
   working)
-    echo "$claude_pid" > "$SESSIONS_DIR/$session_id"
+    echo "$host_pid" > "$SESSIONS_DIR/$session_id"
+    if [[ -n "$prompt_id" ]]; then
+      printf '%s\n' "$prompt_id" > "$SESSIONS_DIR/$session_id.prompt"
+    fi
     ;;
   idle|end)
-    rm -f "$SESSIONS_DIR/$session_id" \
-          "$SESSIONS_DIR/$session_id.cpu" \
-          "$BASELINE_DIR/$session_id" \
-          "$BASELINE_DIR/$session_id.degraded"
+    # Grok's Stop is a gate: a continuation fire (stopHookActive) is not idle.
+    # A cancelled turn's report can arrive after the next UserPromptSubmit —
+    # ignore an idle whose promptId is older than the one we recorded.
+    skip_idle=false
+    if [[ "$stop_hook_active" == "true" ]]; then
+      skip_idle=true
+    fi
+    if [[ -n "$prompt_id" && -f "$SESSIONS_DIR/$session_id.prompt" ]]; then
+      stored_prompt=$(cat "$SESSIONS_DIR/$session_id.prompt" 2>/dev/null || true)
+      if [[ -n "$stored_prompt" && "$stored_prompt" != "$prompt_id" ]]; then
+        skip_idle=true
+      fi
+    fi
+    if [[ "$skip_idle" != true ]]; then
+      rm -f "$SESSIONS_DIR/$session_id" \
+            "$SESSIONS_DIR/$session_id.cpu" \
+            "$SESSIONS_DIR/$session_id.prompt" \
+            "$BASELINE_DIR/$session_id" \
+            "$BASELINE_DIR/$session_id.degraded"
+    fi
     ;;
   *) exit 0 ;;
 esac
@@ -163,15 +188,22 @@ now=$(date_epoch)
 active=0
 shopt -s nullglob
 for f in "$SESSIONS_DIR"/*; do
-  [[ "$f" == *.cpu ]] && continue
+  [[ -d "$f" ]] && continue
+  [[ "$f" == *.cpu || "$f" == *.prompt ]] && continue
   pid=$(cat "$f" 2>/dev/null)
   mtime=$(stat_mtime "$f")
   if [[ -n "$pid" ]] && ! kill -0 "$pid" 2>/dev/null; then
-    rm -f "$f" "$f.cpu" "$BASELINE_DIR/$(basename "$f")" "$BASELINE_DIR/$(basename "$f").degraded"
-    continue
+    rebound=$(claura_pgrep_host "$HOST")
+    if [[ -n "$rebound" ]]; then
+      printf '%s\n' "$rebound" > "$f"
+      pid="$rebound"
+    else
+      rm -f "$f" "$f.cpu" "$f.prompt" "$BASELINE_DIR/$(basename "$f")" "$BASELINE_DIR/$(basename "$f").degraded"
+      continue
+    fi
   fi
   if (( now - mtime >= MAX_STALE )); then
-    rm -f "$f" "$f.cpu" "$BASELINE_DIR/$(basename "$f")" "$BASELINE_DIR/$(basename "$f").degraded"
+    rm -f "$f" "$f.cpu" "$f.prompt" "$BASELINE_DIR/$(basename "$f")" "$BASELINE_DIR/$(basename "$f").degraded"
     continue
   fi
   active=$((active+1))
@@ -203,7 +235,7 @@ fi
 # kill it. We keep session files around when audio is just muted/disabled so
 # re-enabling re-engages from the same state on the next hook tick.
 if (( active > 0 )) && [[ "$player_alive" == false ]] && [[ "$playable" == true ]]; then
-  /usr/bin/env bash "$PLAYER" </dev/null >/dev/null 2>&1 &
+  CLAURA_HOST="$HOST" /usr/bin/env bash "$PLAYER" </dev/null >/dev/null 2>&1 &
   echo $! > "$PLAYER_PID_FILE"
   if [[ -n "$CURRENT_ROOT" ]]; then
     echo "$CURRENT_ROOT" > "$PLAYER_ROOT_FILE"
